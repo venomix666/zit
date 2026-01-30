@@ -513,7 +513,7 @@ static void branch(uint8_t cond)
  * ============================================================
  */
 
-static void print_zstring(uint32_t addr)
+static void print_zstring(uint32_t addr, WINDOW *win)
 {
 	while (1) {
 		uint16_t w = zm_read16(addr);
@@ -528,20 +528,20 @@ static void print_zstring(uint32_t addr)
 				string_addr =
 					zm_read16(abbrev_base + (((abbrev_table << 5) + c) << 1));
 				abbrev_print = 0;
-				print_zstring(string_addr << 1);
+				print_zstring(string_addr << 1, win);
 				alphabet = 0;
 			} else if (zscii_esc == 1) {
 				zscii_high = c;
 				zscii_esc = 2;
 			} else if (zscii_esc == 2) {
-				waddch(game_win, (zscii_high << 5) | c);
+				waddch(win, (zscii_high << 5) | c);
 				zscii_esc = 0;
 			} else if (alphabet == 2 && c == 6) {
 				// ZSCII escape
 				zscii_esc = 1;
 				alphabet = 0;
 			} else if (c >= 6) {
-				waddch(game_win, zalph[alphabet][c - 6]);
+				waddch(win, zalph[alphabet][c - 6]);
 				// Also print \r when \n is printed
                 //if(alphabet == 2 && c == 7)
                 //    putchar('\r');
@@ -554,7 +554,7 @@ static void print_zstring(uint32_t addr)
 				abbrev_print = 1;
 				abbrev_table = c - 1;
 			} else if (c == 0)
-				waddch(game_win, ' ');
+				waddch(win, ' ');
 		}
 		if (w & 0x8000) {
 			alphabet = 0;
@@ -1150,57 +1150,51 @@ static void unimplemented(uint8_t opcode)
 	fatal(" Non-implemented opcode");
 }
 
-#if STATUS
 static void update_status(void) {
-    return;
-    /*if(!status) return;
+    
+    uint8_t xsave, ysave;
+    getyx(game_win, xsave, ysave);
 
-    uint8_t save_x, save_y;
-    screen_getcursor(&save_x, &save_y);
-    screen_setcursor(0, 0);
-    screen_setstyle(1);
-
-    // Score/turn mode
     uint16_t room = get_var(16,0);
     uint16_t v1 = get_var(17,0);
     uint16_t v2 = get_var(18,0);
-   	
+   
+    wclear(stat_win); 
+    wattron(stat_win, A_REVERSE);
+    wmove(stat_win, 0, 0); 
+
     if (room) {
 		uint16_t entry = obj_addr(room);
 		uint16_t prop_table = zm_read16(entry + 7);
 		uint8_t name_len = zm_read8(prop_table);
 		if (name_len != 0)
-			print_zstring(prop_table + 1);
+			print_zstring(prop_table + 1, stat_win);
     }
-    spc();
     if((hdr[HDR_FLAGS] & 0x02) == 0) {
         // Score/turn mode
-        cpm_printstring("Score: ");
-        printi(v1);
-        cpm_printstring(" Turns: ");
-        printi(v2);
+        wprintw(stat_win, "       Score: %d Turns: %d", v1, v2);
     } else {
+        waddch(stat_win, ' ');
         // Time mode
         if(v1<10)
-            putchar('0');
-        printi(v1);
-        putchar(':');
+            waddch(stat_win,'0');
+        wprintw(stat_win, "%d",v1);
+        waddch(stat_win,':');
         if(v2<10)
-            putchar('0');
-        printi(v2);
+            waddch(stat_win,'0');
+        wprintw(stat_win, "%d",v2);
     }
-    uint8_t xsize, ysize,x,y;
-    screen_getsize(&xsize, &ysize);
-    screen_getcursor(&x,&y);
-    while(x<=xsize) {
-        putchar(' ');
-        x++;
-    }
-    screen_setstyle(0);
-    screen_setcursor(save_x, save_y);
- */
+    uint8_t xm, ym;
+    getmaxyx(stat_win, ym, xm);
+    uint8_t xc, yc;
+    getyx(stat_win, yc, xc);
+    for(uint8_t i=xc; i<xm; i++) waddch(stat_win, ' ');
+ 
+    // Reset cursor
+    wrefresh(stat_win);
+    wmove(game_win, xsave, ysave);
+    
 }
-#endif
 
 static void step(void)
 {
@@ -1382,7 +1376,7 @@ static void step(void)
 				pc += (int16_t)operands[0] - 2;
 				break;
 			case OP1_PRINT_ADDR:
-				print_zstring(operands[0]);
+				print_zstring(operands[0], game_win);
 				break;
 			case OP1_PRINT_OBJ: {
 				uint16_t obj = operands[0];
@@ -1395,7 +1389,7 @@ static void step(void)
 				uint8_t name_len = zm_read8(prop_table);
 				if (name_len == 0)
 					break;
-				print_zstring(prop_table + 1);
+				print_zstring(prop_table + 1, game_win);
 				break;
 			}
 			case OP1_REMOVE_OBJ:
@@ -1472,7 +1466,7 @@ static void step(void)
 				break;
 			case OP1_PRINT_PADDR: {
 				uint32_t addr = (uint32_t)operands[0] << 1;
-				print_zstring(addr);
+				print_zstring(addr, game_win);
 				break;
 			}
 			default:
@@ -1490,13 +1484,13 @@ static void step(void)
 				z_ret(0);
 				break;
 			case OP0_PRINT:
-				print_zstring(pc);
+				print_zstring(pc, game_win);
 				while (!(zm_read16(pc) & 0x8000))
 					pc += 2;
 				pc += 2;
 				break;
 			case OP0_PRINT_RET:
-				print_zstring(pc);
+				print_zstring(pc, game_win);
 				while (!(zm_read16(pc) & 0x8000))
 					pc += 2;
 				pc += 2;
@@ -1533,9 +1527,7 @@ static void step(void)
 				wprintw(game_win, "\n");
                 break;
             case OP0_SHOW_STATUS:
-#if STATUS
                 update_status();
-#endif
                 break;
 			case OP0_QUIT:
 				endwin();
@@ -1642,9 +1634,7 @@ static void step(void)
 			uint16_t text = operands[0];
 			uint16_t parse = operands[1];
 			char line[INPUT_MAX] = { 0 };
-#if STATUS
             update_status();
-#endif
             uint8_t len = read_line(line);
 			uint8_t max = zm_read8(text);
 			if (len > max)
@@ -1654,9 +1644,7 @@ static void step(void)
 				zm_write8(text + 1 + i, line[i]);
 
 			zm_write8(text + 1 + len, 0);
-#if STATUS
             update_status();
-#endif
 			tokenize(line, parse, text);
 			break;
 		}
