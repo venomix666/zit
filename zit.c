@@ -127,7 +127,7 @@
  */
 
 #define PAGE_SIZE 512
-#define NUM_PAGES 8
+#define NUM_PAGES 32
 
 #define STACK_SIZE 512
 #define MAX_FRAMES 16
@@ -1449,7 +1449,10 @@ static void step(void)
                 update_status();
                 break;
 			case OP0_QUIT:
-				endwin();
+				wprintw(game_win, "\nPress any key to exit\n");
+                wrefresh(game_win); 
+                wgetch(game_win);    
+                endwin();
                 exit(0);
                 break;
 			case OP0_VERIFY:
