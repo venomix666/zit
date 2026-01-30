@@ -836,21 +836,6 @@ static void obj_put_prop(uint8_t obj, uint8_t prop, uint16_t val)
  * ============================================================
  */
 
-/*void write_save_sector(FCB *fcb, void *dmaptr)
-{
-	cpm_set_dma(dmaptr);
-	cpm_write_sequential(fcb);
-}
-
-void add_save_byte(FCB *fcb, uint8_t *writeSector, uint8_t data)
-{
-	writeSector[w_addr++] = data;
-	if (w_addr == 0x80) {
-		write_save_sector(fcb, writeSector);
-		w_addr = 0;
-	}
-}*/
-
 void add_save_byte(FILE *f, uint8_t data) {
     fwrite(&data, sizeof(uint8_t), 1, f);
 }
@@ -875,8 +860,6 @@ uint8_t save_game(void)
 		return 0;
 	}
 
-	uint16_t enc = 0;
-
 	// Write delta of dynamic ram to file
 	uint16_t cmp_addr = 0;
 	
@@ -900,17 +883,14 @@ uint8_t save_game(void)
 			if (diff) {
 				if (zero_cnt != 0) {
 					write_zero_block(saveFile, zero_cnt);
-					enc += zero_cnt;
 					zero_cnt = 0;
 				}
 				//add_save_byte(&saveFile, writeSector, diff);
 				add_save_byte(saveFile, diff);
-                enc++;
 			} else {
 				zero_cnt++;
 				if (zero_cnt == 0xff) {
 					write_zero_block(saveFile, zero_cnt);
-					enc += zero_cnt;
 					zero_cnt = 0;
 				}
 			}
@@ -920,7 +900,6 @@ uint8_t save_game(void)
 	// Write trailing zeroes
 	if (zero_cnt != 0) {
 		write_zero_block(saveFile, zero_cnt);
-		enc += zero_cnt;
 	}
 
 	// Write frames
@@ -960,122 +939,110 @@ uint8_t save_game(void)
 
 	return 1;
 }
-/*
-uint8_t read_save_byte(FCB *fcb, uint8_t *restoreSector)
-{
-	uint8_t data;
-	// Refill buffer if out of data
-	if (w_addr == 0x80) {
-		cpm_set_dma(restoreSector);
-		cpm_read_random(fcb);
-		fcb->r++;
-		w_addr = 0;
-	}
 
-	data = restoreSector[w_addr++];
-	return data;
+uint8_t read_save_byte(FILE* f, uint8_t *restoreSector) 
+{
+    uint8_t data;
+    // Refill buffer if out of data
+    if (w_addr == 0x80) {
+        uint8_t a = fread(restoreSector, sizeof(uint8_t), 128, f);
+        if(!a)
+                fatal("Error reading save file");
+        w_addr = 0;
+    }
+    data = restoreSector[w_addr++];
+    return data;
 }
 
-uint8_t read_game_byte(uint8_t *r_addr)
+uint8_t read_game_byte(uint8_t *r_addr, uint8_t *gameSector) 
 {
-	uint8_t data;
-	// Refill buffer if out of data
-	if ((*r_addr) == 0x80) {
-		cpm_set_dma(&dma);
-		cpm_read_random(&cpm_fcb);
-		cpm_fcb.r++;
-		(*r_addr) = 0;
-	}
-
-	data = dma[(*r_addr)];
-	(*r_addr) = (*r_addr) + 1;
-	return data;
+    uint8_t data;
+    // Refill buffer if out of data
+    if((*r_addr) == 0x80) {
+        if(!fread(gameSector, sizeof(uint8_t), 128, fptr))
+                fatal("Error reading game file");
+        (*r_addr) = 0;
+    }
+    data = gameSector[(*r_addr)];
+    (*r_addr) = (*r_addr) + 1;
+    return data;
 }
 
 uint8_t restore_game(void)
 {
-	FCB saveFile;
-	char filename_input[14];
-
-	filename_input[0] = 13;
-	filename_input[1] = 0;
-
-	cpm_printstring("Enter filename: ");
-	cpm_readline((uint8_t *)filename_input);
-
-	cpm_set_dma(&saveFile);
-	if (!cpm_parse_filename(&filename_input[2])) {
+    FILE* saveFile;
+    char filename_input[100];
+    echo(); 
+   	wprintw(game_win, "Enter filename: ");
+    wscanw(game_win, "%s", filename_input);
+    noecho();
+	saveFile = fopen(filename_input, "r");
+    if (!saveFile) {
 		return 0;
 	}
-
-	saveFile.cr = 0;
-	if (cpm_open_file(&saveFile)) {
-		return 0;
-	}
-	saveFile.r = 0;
 
 	// Restore dynamic ram from file
 	uint16_t cmp_addr = 0;
 
-	cpm_fcb.r = 0;
 	uint8_t restoreSector[128];
-	uint8_t gameFileSector[128];
+	uint8_t gameSector[128];
 	// uint8_t zero_cnt;
 
+    fseek(fptr, 0, SEEK_SET);
+    fseek(saveFile, 0, SEEK_SET); 
 	w_addr = 0x80; // trigger sector read
-	uint8_t r_addr = 0x80;
+	//uint8_t r_addr = 0x80;
 	uint8_t gameFileAddr = 0x80;
 
 	// Restore dynamic memory
 	while (cmp_addr < dynamic_size) {
-		uint8_t data = read_save_byte(&saveFile, restoreSector);
+		uint8_t data = read_save_byte(saveFile, restoreSector);
 
 		if (data == 0x00) {
-			uint8_t zero_cnt = read_save_byte(&saveFile, restoreSector);
+			uint8_t zero_cnt = read_save_byte(saveFile, restoreSector);
 
 			for (uint8_t i = 0; i < zero_cnt; i++) {
-				dynamic_mem[cmp_addr++] = read_game_byte(&gameFileAddr);
+				dynamic_mem[cmp_addr++] = read_game_byte(&gameFileAddr, gameSector);
 			}
 		} else {
-			dynamic_mem[cmp_addr++] = read_game_byte(&gameFileAddr) ^ data;
+			dynamic_mem[cmp_addr++] = read_game_byte(&gameFileAddr, gameSector) ^ data;
 		}
 	}
 
 	// Restore frames
-	fp = read_save_byte(&saveFile, restoreSector); // Frame pointer
+	fp = read_save_byte(saveFile, restoreSector); // Frame pointer
 	for (uint8_t i = 0; i < fp + 2; i++) {
 		frames[i].return_pc =
-			((uint32_t)read_save_byte(&saveFile, restoreSector) << 24) |
-			((uint32_t)read_save_byte(&saveFile, restoreSector) << 16) |
-			((uint32_t)read_save_byte(&saveFile, restoreSector) << 8) |
-			(uint32_t)read_save_byte(&saveFile, restoreSector);
-		frames[i].store_var = read_save_byte(&saveFile, restoreSector);
-		frames[i].num_locals = read_save_byte(&saveFile, restoreSector);
+			((uint32_t)read_save_byte(saveFile, restoreSector) << 24) |
+			((uint32_t)read_save_byte(saveFile, restoreSector) << 16) |
+			((uint32_t)read_save_byte(saveFile, restoreSector) << 8) |
+			(uint32_t)read_save_byte(saveFile, restoreSector);
+		frames[i].store_var = read_save_byte(saveFile, restoreSector);
+		frames[i].num_locals = read_save_byte(saveFile, restoreSector);
 		for (uint8_t j = 0; j < MAX_LOCALS; j++) {
 			frames[i].locals[j] =
-				(read_save_byte(&saveFile, restoreSector) << 8) |
-				read_save_byte(&saveFile, restoreSector);
+				(read_save_byte(saveFile, restoreSector) << 8) |
+				read_save_byte(saveFile, restoreSector);
 		}
-		frames[i].saved_sp = (read_save_byte(&saveFile, restoreSector) << 8) |
-							 read_save_byte(&saveFile, restoreSector);
+		frames[i].saved_sp = (read_save_byte(saveFile, restoreSector) << 8) |
+							 read_save_byte(saveFile, restoreSector);
 	}
 	// Restore stack
-	sp = (read_save_byte(&saveFile, restoreSector) << 8) |
-		 read_save_byte(&saveFile, restoreSector);
+	sp = (read_save_byte(saveFile, restoreSector) << 8) |
+		 read_save_byte(saveFile, restoreSector);
 	for (uint16_t i = 0; i < sp; i++) {
-		stack[i] = (read_save_byte(&saveFile, restoreSector) << 8) |
-				   read_save_byte(&saveFile, restoreSector);
+		stack[i] = (read_save_byte(saveFile, restoreSector) << 8) |
+				   read_save_byte(saveFile, restoreSector);
 	}
 	// Restore PC
-	pc = ((uint32_t)read_save_byte(&saveFile, restoreSector) << 24) |
-		 ((uint32_t)read_save_byte(&saveFile, restoreSector) << 16) |
-		 ((uint32_t)read_save_byte(&saveFile, restoreSector) << 8) |
-		 (uint32_t)read_save_byte(&saveFile, restoreSector);
+	pc = ((uint32_t)read_save_byte(saveFile, restoreSector) << 24) |
+		 ((uint32_t)read_save_byte(saveFile, restoreSector) << 16) |
+		 ((uint32_t)read_save_byte(saveFile, restoreSector) << 8) |
+		 (uint32_t)read_save_byte(saveFile, restoreSector);
 
-	cpm_close_file(&saveFile);
+	fclose(saveFile);
 	return 1;
 }
-*/
 
 /* ============================================================
  * Execution
@@ -1484,8 +1451,7 @@ static void step(void)
                 break;
 
 			case OP0_RESTORE:
-				//branch(restore_game());
-				branch(0);
+				branch(restore_game());
                 break;
 
 			case OP0_RESTART:
