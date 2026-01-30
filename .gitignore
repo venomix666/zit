@@ -56,6 +56,10 @@ dkms.conf
 
 # vim swap
 *.swp
+
+# z3 files
+*.z3
+
 # binary
 zit
 
