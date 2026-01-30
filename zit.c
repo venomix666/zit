@@ -229,29 +229,11 @@ static long int opcnt = 0;
 static void print_hex(uint16_t val)
 {
 	wprintw(game_win, "%x", val);
-    /*cpm_printstring("0x");
-	for (uint8_t i = 4; i > 0; i--) {
-		uint8_t nibble = (val >> ((i - 1) << 2)) & 0xf;
-
-		if (nibble < 10)
-			cpm_conout(nibble + '0');
-		else
-			cpm_conout(nibble - 10 + 'A');
-	}*/
 }
 
 static void print_hex_32(uint32_t val)
 {
 	wprintw(game_win, "%x", val);
-    /*cpm_printstring("0x");
-	for (uint8_t i = 8; i > 0; i--) {
-		uint8_t nibble = (val >> ((i - 1) << 2)) & 0xf;
-
-		if (nibble < 10)
-			cpm_conout(nibble + '0');
-		else
-			cpm_conout(nibble - 10 + 'A');
-	}*/
 }
 #endif
 
@@ -525,9 +507,6 @@ static void print_zstring(uint32_t addr, WINDOW *win)
 				alphabet = 0;
 			} else if (c >= 6) {
 				waddch(win, zalph[alphabet][c - 6]);
-				// Also print \r when \n is printed
-                //if(alphabet == 2 && c == 7)
-                //    putchar('\r');
                 alphabet = 0;
 			} else if (c == 4) {
 				alphabet = 1;
@@ -885,7 +864,6 @@ uint8_t save_game(void)
 					write_zero_block(saveFile, zero_cnt);
 					zero_cnt = 0;
 				}
-				//add_save_byte(&saveFile, writeSector, diff);
 				add_save_byte(saveFile, diff);
 			} else {
 				zero_cnt++;
@@ -986,12 +964,10 @@ uint8_t restore_game(void)
 
 	uint8_t restoreSector[128];
 	uint8_t gameSector[128];
-	// uint8_t zero_cnt;
 
     fseek(fptr, 0, SEEK_SET);
     fseek(saveFile, 0, SEEK_SET); 
 	w_addr = 0x80; // trigger sector read
-	//uint8_t r_addr = 0x80;
 	uint8_t gameFileAddr = 0x80;
 
 	// Restore dynamic memory
@@ -1119,7 +1095,7 @@ static void update_status(void) {
         // Score/turn mode
         wprintw(stat_win, "       Score: %d Turns: %d", v1, v2);
     } else {
-        waddch(stat_win, ' ');
+        wprintw(stat_win, "       ");
         // Time mode
         if(v1<10)
             waddch(stat_win,'0');
