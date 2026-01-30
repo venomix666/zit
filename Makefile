@@ -1,7 +1,7 @@
 TARGET = zit
 CC = gcc
 CFLAGS = -Os
-LIBS =
+LIBS = -lncurses
 
 .PHONY: default all clean
 

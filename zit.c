@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ncurses.h>
 
 /* ============================================================
  * Opcode definitions
@@ -137,7 +138,6 @@
 #define MAX_TOKENS 16
 
 #define DEBUG 0
-#define STATUS 1
 
 /* ============================================================
  * Structures
@@ -214,6 +214,9 @@ static uint8_t w_addr;
 
 static uint8_t status = 0;
 
+WINDOW *stat_win;
+WINDOW *game_win;
+
 #if DEBUG
 static long int opcnt = 0;
 #endif
@@ -241,7 +244,7 @@ static long int opcnt = 0;
 #if DEBUG
 static void print_hex(uint16_t val)
 {
-	printf("%x", val);
+	wprintw(game_win, "%x", val);
     /*cpm_printstring("0x");
 	for (uint8_t i = 4; i > 0; i--) {
 		uint8_t nibble = (val >> ((i - 1) << 2)) & 0xf;
@@ -255,7 +258,7 @@ static void print_hex(uint16_t val)
 
 static void print_hex_32(uint32_t val)
 {
-	printf("%x", val);
+	wprintw(game_win, "%x", val);
     /*cpm_printstring("0x");
 	for (uint8_t i = 8; i > 0; i--) {
 		uint8_t nibble = (val >> ((i - 1) << 2)) & 0xf;
@@ -270,30 +273,36 @@ static void print_hex_32(uint32_t val)
 
 static void fatal(const char *s)
 {
-    printf("%s\r\n",s);
-	exit(0);
+    wprintw(game_win, "%s\n",s);
+	endwin();
+    exit(0);
 }
 
 static uint8_t read_line(char *buf)
 {
 	uint8_t len = 0;
 	for (;;) {
-		char c = getchar();
-
+		char c = wgetch(game_win);
+        if(c==8 || c==127) {
+            uint8_t x, y;
+            getyx(game_win, y, x);
+            if(x>1) mvwdelch(game_win,y,x-1);
+        } else {
+            waddch(game_win, c);
+        }
 		/* force lowercase */
 		if (c >= 'A' && c <= 'Z')
 			c = c - 'A' + 'a';
 
 		if (c == '\r' || c == '\n') {
-			printf("\r\n");
+			wprintw(game_win, "\n");
 			buf[len] = 0;
 		return len;
 		}
-		if ((c == 8 || c == 127) && len) {
-			len--;
+		if ((c == 8 || c == 127)) {
+			if(len) len--;
 			continue;
-		}
-		if (len < INPUT_MAX - 1) {
+		} else if (len < INPUT_MAX - 1) {
 			buf[len++] = c;
 		}
 	}
@@ -389,13 +398,13 @@ static uint16_t get_var(uint8_t v, uint8_t indirect)
 	uint16_t a = (hdr[HDR_GLB] << 8) + hdr[HDR_GLB + 1] + 2 * (v - 16);
 	uint16_t ret_data = zm_read16(a);
 #if DEBUG
-	printf("Read global variable ");
+	wprintw(game_win, "Read global variable ");
 	print_hex(v);
-	printf(" data: ");
+	wprintw(game_win, " data: ");
 	print_hex(ret_data);
-	printf(" address: ");
+	wprintw(game_win, " address: ");
 	print_hex(a);
-	printf("\r\n");;
+	wprintw(game_win, "\n");;
 #endif
 	return ret_data;
 }
@@ -525,17 +534,17 @@ static void print_zstring(uint32_t addr)
 				zscii_high = c;
 				zscii_esc = 2;
 			} else if (zscii_esc == 2) {
-				putchar((zscii_high << 5) | c);
+				waddch(game_win, (zscii_high << 5) | c);
 				zscii_esc = 0;
 			} else if (alphabet == 2 && c == 6) {
 				// ZSCII escape
 				zscii_esc = 1;
 				alphabet = 0;
 			} else if (c >= 6) {
-				putchar(zalph[alphabet][c - 6]);
+				waddch(game_win, zalph[alphabet][c - 6]);
 				// Also print \r when \n is printed
-                if(alphabet == 2 && c == 7)
-                    putchar('\r');
+                //if(alphabet == 2 && c == 7)
+                //    putchar('\r');
                 alphabet = 0;
 			} else if (c == 4) {
 				alphabet = 1;
@@ -545,7 +554,7 @@ static void print_zstring(uint32_t addr)
 				abbrev_print = 1;
 				abbrev_table = c - 1;
 			} else if (c == 0)
-				putchar(' ');
+				waddch(game_win, ' ');
 		}
 		if (w & 0x8000) {
 			alphabet = 0;
@@ -556,11 +565,7 @@ static void print_zstring(uint32_t addr)
 
 static void print_num(int16_t v)
 {
-	if (v < 0) {
-		putchar('-');
-		v = -v;
-	}
-    printf("%d",v);
+    wprintw(game_win, "%d",v);
 }
 
 /* ============================================================
@@ -877,7 +882,7 @@ uint8_t save_game(void)
 	filename_input[0] = 13;
 	filename_input[1] = 0;
 
-	printf("Enter filename: ");
+	wprintw(game_win, ("Enter filename: ");
 	cpm_readline((uint8_t *)filename_input);
 
 	cpm_set_dma(&saveFile);
@@ -1137,7 +1142,7 @@ static uint16_t rng_next(void)
 
 static void unimplemented(uint8_t opcode)
 {
-	printf("\r\n%d", opcode);
+	wprintw(game_win, "\n%d", opcode);
 #if DEBUG
 	spc();
     print_hex(pc);
@@ -1495,7 +1500,7 @@ static void step(void)
 				while (!(zm_read16(pc) & 0x8000))
 					pc += 2;
 				pc += 2;
-				printf("\r\n");
+				wprintw(game_win, "\n");
                 z_ret(1);
 				break;
 
@@ -1525,7 +1530,7 @@ static void step(void)
 				break;
 
 			case OP0_NEW_LINE:
-				printf("\r\n");
+				wprintw(game_win, "\n");
                 break;
             case OP0_SHOW_STATUS:
 #if STATUS
@@ -1533,7 +1538,8 @@ static void step(void)
 #endif
                 break;
 			case OP0_QUIT:
-				exit(0);
+				endwin();
+                exit(0);
                 break;
 			case OP0_VERIFY:
 				// Not supported, just assume it's OK
@@ -1619,7 +1625,7 @@ static void step(void)
 			set_var(operands[0], operands[1], 0);
 			break;
 		case OPV_PRINT_CHAR:
-			putchar((char)operands[0]);
+			waddch(game_win, (char)operands[0]);
 			break;
 		case OPV_PRINT_NUM:
 			print_num((int16_t)operands[0]);
@@ -1740,11 +1746,24 @@ static void step(void)
 
 int main(int argc, char **argv)
 {
-#if STATUS
-    // Initate screen driver for status bar if available
-#endif
+    // Initate ncurses for status bar etc.
+    initscr();
+    cbreak();
+    noecho();
+    wclear(stdscr);
+    wrefresh(stdscr);
+    
+    uint8_t max_x;
+    uint8_t max_y;
 
-    printf("zit - Z-machine v3 interpreter\r\n\r\n");
+    getmaxyx(stdscr, max_y, max_x);
+
+    stat_win = newwin(1, max_x, 0, 0);
+    game_win = newwin(max_y-1, max_x, 1, 0);
+
+    scrollok(game_win, TRUE);
+
+    wprintw(game_win, "zit - Z-machine v3 interpreter\n\n");
     if(argc < 2)
         fatal("Usage: zit [storyfile]");
 
@@ -1794,6 +1813,8 @@ int main(int argc, char **argv)
 	abbrev_base = (hdr[HDR_ABBR] << 8) | hdr[HDR_ABBR + 1];
 
     // Start game execution
-	for (;;)
+	for (;;) {
 		step();
+        wrefresh(game_win);
+    }
 }
