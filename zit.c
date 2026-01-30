@@ -212,8 +212,6 @@ static void z_ret(uint16_t v);
 
 static uint8_t w_addr;
 
-static uint8_t status = 0;
-
 WINDOW *stat_win;
 WINDOW *game_win;
 
@@ -273,8 +271,8 @@ static void print_hex_32(uint32_t val)
 
 static void fatal(const char *s)
 {
-    wprintw(game_win, "%s\n",s);
-	endwin();
+    endwin();
+    printf( "%s\n",s);
     exit(0);
 }
 
