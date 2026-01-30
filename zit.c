@@ -284,7 +284,7 @@ static void load_page(Page *p, uint16_t page)
 	uint32_t offset = page << 9;
     fseek(fptr, offset, SEEK_SET);
     uint16_t rs = fread(p->data, sizeof(uint8_t), 512, fptr);
-    if(rs!=512) fatal("Error reading page from file!");
+    if(!rs) fatal("Error reading page from file!");
 
     p->page = page;
 	p->valid = 1;
