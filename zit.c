@@ -224,20 +224,6 @@ static long int opcnt = 0;
  * ============================================================
  */
 
-/*static inline void putc(char c)
-{
-	cpm_conout(c);
-}*/
-
-/*static void crlf(void)
-{
-	cpm_printstring("\r\n");
-}*/
-
-/*static void spc(void)
-{
-	cpm_conout(' ');
-}*/
 
 #if DEBUG
 static void print_hex(uint16_t val)
@@ -316,10 +302,9 @@ static void load_page(Page *p, uint16_t page)
 	uint32_t offset = page << 9;
     fseek(fptr, offset, SEEK_SET);
     uint16_t rs = fread(p->data, sizeof(uint8_t), 512, fptr);
-    if(rs!=512)
-        fatal("Error reading page from file!");
+    if(rs!=512) fatal("Error reading page from file!");
 
-	p->page = page;
+    p->page = page;
 	p->valid = 1;
 }
 
@@ -850,8 +835,8 @@ static void obj_put_prop(uint8_t obj, uint8_t prop, uint16_t val)
  * Saving and Restoring
  * ============================================================
  */
-/*
-void write_save_sector(FCB *fcb, void *dmaptr)
+
+/*void write_save_sector(FCB *fcb, void *dmaptr)
 {
 	cpm_set_dma(dmaptr);
 	cpm_write_sequential(fcb);
@@ -864,31 +849,29 @@ void add_save_byte(FCB *fcb, uint8_t *writeSector, uint8_t data)
 		write_save_sector(fcb, writeSector);
 		w_addr = 0;
 	}
+}*/
+
+void add_save_byte(FILE *f, uint8_t data) {
+    fwrite(&data, sizeof(uint8_t), 1, f);
 }
 
-void write_zero_block(FCB *fcb, uint8_t *writeSector, uint8_t zero_cnt)
+void write_zero_block(FILE* f, uint8_t zero_cnt)
 {
-	add_save_byte(fcb, writeSector, 0x00);
-	add_save_byte(fcb, writeSector, zero_cnt);
+    uint8_t no = 0x00;
+    fwrite(&no, sizeof(uint8_t), 1, f);
+    fwrite(&zero_cnt, sizeof(uint8_t), 1, f);
 }
 
 uint8_t save_game(void)
 {
-	FCB saveFile;
-	char filename_input[14];
-
-	filename_input[0] = 13;
-	filename_input[1] = 0;
-
-	wprintw(game_win, ("Enter filename: ");
-	cpm_readline((uint8_t *)filename_input);
-
-	cpm_set_dma(&saveFile);
-	if (!cpm_parse_filename(&filename_input[2])) {
-		return 0;
-	}
-
-	if (cpm_make_file(&saveFile)) {
+	FILE* saveFile;
+    char filename_input[100];
+    echo(); 
+   	wprintw(game_win, "Enter filename: ");
+    wscanw(game_win, "%s", filename_input);
+    noecho();
+	saveFile = fopen(filename_input, "w+");
+    if (!saveFile) {
 		return 0;
 	}
 
@@ -896,34 +879,37 @@ uint8_t save_game(void)
 
 	// Write delta of dynamic ram to file
 	uint16_t cmp_addr = 0;
-	cpm_fcb.r = 0;
-	uint8_t writeSector[128];
-	w_addr = 0;
+	
+    fseek(fptr, 0, SEEK_SET);
+    
+    w_addr = 0;
 	uint8_t zero_cnt = 0;
 
 	while (cmp_addr < dynamic_size) {
 		// Read a sector from file
 		uint8_t checkSector[128];
-		cpm_set_dma(&checkSector);
-		cpm_read_random(&cpm_fcb);
-		cpm_fcb.r++;
-		// Compare byte by byte with ram
+		
+	    if(fread(checkSector, sizeof(uint8_t), 128, fptr) != 128)
+            return 0;
+
+        // Compare byte by byte with ram
 		uint8_t next_len =
 			(dynamic_size - cmp_addr) > 128 ? 128 : (dynamic_size - cmp_addr);
 		for (uint8_t i = 0; i < next_len; i++) {
 			uint8_t diff = dynamic_mem[cmp_addr] ^ checkSector[i];
 			if (diff) {
 				if (zero_cnt != 0) {
-					write_zero_block(&saveFile, writeSector, zero_cnt);
+					write_zero_block(saveFile, zero_cnt);
 					enc += zero_cnt;
 					zero_cnt = 0;
 				}
-				add_save_byte(&saveFile, writeSector, diff);
-				enc++;
+				//add_save_byte(&saveFile, writeSector, diff);
+				add_save_byte(saveFile, diff);
+                enc++;
 			} else {
 				zero_cnt++;
 				if (zero_cnt == 0xff) {
-					write_zero_block(&saveFile, writeSector, zero_cnt);
+					write_zero_block(saveFile, zero_cnt);
 					enc += zero_cnt;
 					zero_cnt = 0;
 				}
@@ -933,54 +919,48 @@ uint8_t save_game(void)
 	}
 	// Write trailing zeroes
 	if (zero_cnt != 0) {
-		write_zero_block(&saveFile, writeSector, zero_cnt);
+		write_zero_block(saveFile, zero_cnt);
 		enc += zero_cnt;
 	}
 
 	// Write frames
-	add_save_byte(&saveFile, writeSector, fp);
+    add_save_byte(saveFile, fp);
 	for (uint8_t i = 0; i < fp + 2; i++) {
-		add_save_byte(&saveFile, writeSector, (frames[i].return_pc >> 24));
-		add_save_byte(&saveFile, writeSector, (frames[i].return_pc >> 16));
-		add_save_byte(&saveFile, writeSector, (frames[i].return_pc >> 8));
-		add_save_byte(&saveFile, writeSector, (frames[i].return_pc & 0xFF));
+		add_save_byte(saveFile, (frames[i].return_pc >> 24));
+		add_save_byte(saveFile, (frames[i].return_pc >> 16));
+		add_save_byte(saveFile, (frames[i].return_pc >> 8));
+		add_save_byte(saveFile, (frames[i].return_pc & 0xFF));
 
-		add_save_byte(&saveFile, writeSector, frames[i].store_var);
+		add_save_byte(saveFile, frames[i].store_var);
 
-		add_save_byte(&saveFile, writeSector, frames[i].num_locals);
+		add_save_byte(saveFile, frames[i].num_locals);
 		for (uint8_t j = 0; j < MAX_LOCALS; j++) {
-			add_save_byte(&saveFile, writeSector, (frames[i].locals[j] >> 8));
-			add_save_byte(&saveFile, writeSector, (frames[i].locals[j] & 0xFF));
+			add_save_byte(saveFile, (frames[i].locals[j] >> 8));
+			add_save_byte(saveFile, (frames[i].locals[j] & 0xFF));
 		}
 
-		add_save_byte(&saveFile, writeSector, (frames[i].saved_sp >> 8));
-		add_save_byte(&saveFile, writeSector, (frames[i].saved_sp & 0xFF));
+		add_save_byte(saveFile, (frames[i].saved_sp >> 8));
+		add_save_byte(saveFile, (frames[i].saved_sp & 0xFF));
 	}
 	// Write stack
-	add_save_byte(&saveFile, writeSector, (sp >> 8));
-	add_save_byte(&saveFile, writeSector, (sp & 0xFF));
+	add_save_byte(saveFile, (sp >> 8));
+	add_save_byte(saveFile, (sp & 0xFF));
 
 	for (uint16_t i = 0; i < sp; i++) {
-		add_save_byte(&saveFile, writeSector, (stack[i] >> 8));
-		add_save_byte(&saveFile, writeSector, (stack[i] & 0xFF));
+		add_save_byte(saveFile, (stack[i] >> 8));
+		add_save_byte(saveFile, (stack[i] & 0xFF));
 	}
 	// Save PC
-	add_save_byte(&saveFile, writeSector, (pc >> 24));
-	add_save_byte(&saveFile, writeSector, (pc >> 16));
-	add_save_byte(&saveFile, writeSector, (pc >> 8));
-	add_save_byte(&saveFile, writeSector, (pc & 0xFF));
+	add_save_byte(saveFile, (pc >> 24));
+	add_save_byte(saveFile, (pc >> 16));
+	add_save_byte(saveFile, (pc >> 8));
+	add_save_byte(saveFile, (pc & 0xFF));
 
-	// Perform a final write if necessary
-
-	if (w_addr != 0) {
-		write_save_sector(&saveFile, writeSector);
-	}
-
-	cpm_close_file(&saveFile);
+    fclose(saveFile);
 
 	return 1;
 }
-
+/*
 uint8_t read_save_byte(FCB *fcb, uint8_t *restoreSector)
 {
 	uint8_t data;
@@ -1500,8 +1480,7 @@ static void step(void)
 				break;
 
 			case OP0_SAVE:
-				//branch(save_game());
-				branch(0);
+				branch(save_game());
                 break;
 
 			case OP0_RESTORE:
