@@ -60,6 +60,9 @@ dkms.conf
 # z3 files
 *.z3
 
+# save file
+*.sav
+
 # binary
 zit
 
